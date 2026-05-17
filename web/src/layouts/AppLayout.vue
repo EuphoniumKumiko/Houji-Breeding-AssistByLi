@@ -134,46 +134,44 @@ const mainList = computed(() => {
     }
   ]
 
-  // items.push({
-  //   name: '工作区',
-  //   path: '/workspace',
-  //   icon: FolderKanban,
-  //   activeIcon: FolderKanban
-  // })
+  items.push({
+    name: '工作区',
+    path: '/workspace',
+    icon: FolderKanban,
+    activeIcon: FolderKanban
+  })
 
   if (userStore.isAdmin) {
     if (!isLiteMode) {
       items.push({
-        name: '知识图谱',
-        path: '/graph',
-        activePaths: [ '/graph'],
+        name: '知识库',
+        path: '/database',
+        activePaths: ['/database', '/graph'],
         icon: LibraryBig,
         activeIcon: LibraryBig
       })
     }
 
-    // if (userStore.isSuperAdmin) {
-    //   items.push({
-    //     name: '扩展管理',
-    //     path: '/extensions',
-    //     icon: Blocks,
-    //     activeIcon: Blocks
-    //   })
-    // }
+    items.push({
+      name: '扩展管理',
+      path: '/extensions',
+      icon: Blocks,
+      activeIcon: Blocks
+    })
 
-    // items.push({
-    //   name: '模型配置',
-    //   path: '/model-config',
-    //   icon: Box,
-    //   activeIcon: Box
-    // })
+    items.push({
+      name: '模型配置',
+      path: '/model-config',
+      icon: Box,
+      activeIcon: Box
+    })
 
-    // items.push({
-    //   name: 'Dashboard',
-    //   path: '/dashboard',
-    //   icon: BarChart3,
-    //   activeIcon: BarChart3
-    // })
+    items.push({
+      name: 'Dashboard',
+      path: '/dashboard',
+      icon: BarChart3,
+      activeIcon: BarChart3
+    })
   }
 
   return items
@@ -267,7 +265,7 @@ provide('settingsModal', {
     <div class="header" :class="{ 'top-bar': layoutSettings.useTopBar }">
       <div class="sidebar-brand" @click.stop>
         <router-link v-if="!sidebarCollapsed" to="/" class="brand-link">
-          <!-- <img :src="infoStore.organization.avatar" class="brand-avatar" /> -->
+          <img :src="infoStore.organization.avatar" class="brand-avatar" />
           <span class="brand-name">{{ organizationName }}</span>
         </router-link>
         <button
@@ -330,7 +328,7 @@ provide('settingsModal', {
       </div>
       <div class="foo">
         <div class="github nav-item" @click.stop>
-          <!-- <a-tooltip placement="right" :open="sidebarCollapsed ? undefined : false">
+          <a-tooltip placement="right" :open="sidebarCollapsed ? undefined : false">
             <template #title>欢迎 Star</template>
             <a href="https://github.com/xerrors/Yuxi" target="_blank" class="github-link">
               <GithubOutlined class="icon" />
@@ -339,12 +337,12 @@ provide('settingsModal', {
                 <span class="star-count">{{ (githubStars / 1000).toFixed(1) }}k</span>
               </span>
             </a>
-          </a-tooltip> -->
+          </a-tooltip>
         </div>
         <!-- 用户信息组件 -->
         <div class="nav-item user-info" @click.stop>
           <UserInfoComponent :show-role="!sidebarCollapsed">
-            <template v-if="userStore.isSuperAdmin" #actions>
+            <template v-if="userStore.isAdmin" #actions>
               <a-tooltip placement="top" title="任务中心">
                 <button
                   class="user-task-center"
@@ -398,7 +396,7 @@ provide('settingsModal', {
 @sidebar-width: 252px;
 @sidebar-collapsed-width: 56px;
 @sidebar-padding: 6px 8px;
-@sidebar-item-height: 40px;
+@sidebar-item-height: 36px;
 @sidebar-item-padding-x: 10px;
 @sidebar-icon-size: 18px;
 
@@ -547,7 +545,7 @@ div.header,
     background-color: transparent;
     color: var(--gray-700);
     font-size: 14px;
-    font-weight: 600;
+    font-weight: 450;
     transition:
       background-color 0.2s ease-in-out,
       border-color 0.2s ease-in-out,
@@ -569,7 +567,7 @@ div.header,
       margin-left: 8px;
       overflow: hidden;
       line-height: 20px;
-      font-weight: 500;
+      font-weight: 450;
       text-overflow: ellipsis;
       white-space: nowrap;
       transition:

@@ -42,7 +42,6 @@ export const TOOL_ICON_MAP = {
   search_file_content: FolderSearch,
   task: Bot,
   tavily_search: Globe,
-  pubmed_search: Globe,
   text_to_img_qwen_image: Image,
   write_file: FileEdit,
   write_todos: CheckSquare

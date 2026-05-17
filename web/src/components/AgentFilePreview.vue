@@ -118,12 +118,7 @@
         />
       </template>
       <template v-else-if="isMarkdown">
-        <MdPreview
-          class="flat-md-preview"
-          :modelValue="formatContent(file?.content)"
-          :theme="theme"
-          previewTheme="github"
-        />
+        <MarkdownPreview :content="formatContent(file?.content)" />
       </template>
       <template v-else-if="file?.supported === false">
         <div class="unsupported-preview">
@@ -206,12 +201,7 @@
               />
             </template>
             <template v-else-if="isMarkdown">
-              <MdPreview
-                class="flat-md-preview"
-                :modelValue="formatContent(file?.content)"
-                :theme="theme"
-                previewTheme="github"
-              />
+              <MarkdownPreview :content="formatContent(file?.content)" />
             </template>
             <template v-else-if="file?.supported === false">
               <div class="unsupported-preview fullscreen-unsupported-preview">
@@ -251,11 +241,11 @@ import {
   Save,
   X
 } from 'lucide-vue-next'
-import { MdPreview } from 'md-editor-v3'
 import hljs from 'highlight.js/lib/common'
-import 'md-editor-v3/lib/preview.css'
+import MarkdownPreview from '@/components/common/MarkdownPreview.vue'
 import { useThemeStore } from '@/stores/theme'
 import { getFileIcon, getFileIconColor } from '@/utils/file_utils'
+import { escapeHtml } from '@/utils/html'
 import {
   getCodeLanguageByPath,
   getPreviewFileExtension,
@@ -303,6 +293,10 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
+  editAllText: {
+    type: Boolean,
+    default: false
+  },
   saving: {
     type: Boolean,
     default: false
@@ -320,7 +314,6 @@ const props = defineProps({
 const emit = defineEmits(['close', 'download', 'save'])
 
 const themeStore = useThemeStore()
-const theme = computed(() => (themeStore.isDark ? 'dark' : 'light'))
 const closeTitle = computed(() =>
   props.closeVariant === 'collapse-right' ? '收起预览面板' : '关闭预览'
 )
@@ -334,13 +327,16 @@ const fullscreenPreviewVisible = ref(false)
 const htmlPreviewRenderKey = ref(0)
 
 const isMarkdown = computed(() => isMarkdownPreview(props.filePath, props.file?.previewType))
-const canEdit = computed(
-  () =>
+const canEdit = computed(() => {
+  const previewType = props.file?.previewType
+  return (
     props.editable &&
     props.file?.supported !== false &&
     typeof props.file?.content === 'string' &&
-    EDITABLE_EXTENSIONS.has(getPreviewFileExtension(props.filePath))
-)
+    (previewType === 'text' || previewType === 'markdown') &&
+    (props.editAllText || EDITABLE_EXTENSIONS.has(getPreviewFileExtension(props.filePath)))
+  )
+})
 const savedContent = computed(() => formatContent(props.file?.content))
 const draftChanged = computed(() => draftContent.value !== savedContent.value)
 const isHtmlFile = computed(
@@ -358,14 +354,6 @@ const isCodePreview = computed(
     !isHtmlFile.value &&
     Boolean(codeLanguage.value)
 )
-
-const escapeHtml = (content) =>
-  String(content)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;')
 
 const highlightedCodeContent = computed(() => {
   const content = props.file?.content
@@ -559,7 +547,7 @@ onUnmounted(() => {
   }
 
   .flat-md-preview {
-    padding: 12px;
+    padding: 20px;
   }
 }
 
@@ -719,11 +707,4 @@ onUnmounted(() => {
   max-height: calc(100vh - 48px);
 }
 
-:deep(.flat-md-preview .md-editor) {
-  background: transparent;
-}
-
-:deep(.flat-md-preview .md-editor-preview-wrapper) {
-  padding: 0;
-}
 </style>

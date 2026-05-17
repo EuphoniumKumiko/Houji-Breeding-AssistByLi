@@ -1,16 +1,26 @@
-# 新的统一文档处理器接口
-from yuxi.plugins.parser.base import (
-    BaseDocumentProcessor,
-    DocumentParserException,
-    DocumentProcessorException,
-    OCRException,
-)
-from yuxi.plugins.parser.factory import DocumentProcessorFactory
+from importlib import import_module
 
 __all__ = [
     "BaseDocumentProcessor",
-    "DocumentProcessorException",
     "DocumentParserException",
+    "DocumentProcessorException",
     "OCRException",
-    "DocumentProcessorFactory",  # 推荐使用
+    "DocumentProcessorFactory",
 ]
+
+
+def __getattr__(name: str):
+    if name in {
+        "BaseDocumentProcessor",
+        "DocumentParserException",
+        "DocumentProcessorException",
+        "OCRException",
+    }:
+        return getattr(import_module("yuxi.plugins.parser.base"), name)
+    if name == "DocumentProcessorFactory":
+        return import_module("yuxi.plugins.parser.factory").DocumentProcessorFactory
+    raise AttributeError(f"module 'yuxi.plugins' has no attribute {name!r}")
+
+
+def __dir__():
+    return sorted(set(globals()) | set(__all__))

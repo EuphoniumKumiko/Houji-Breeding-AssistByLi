@@ -1,9 +1,11 @@
 import os
+import inspect
+import sys
+import types
 
 from fastapi import APIRouter
 
 from server.routers.auth_router import auth
-from server.routers.chat_router import chat
 from server.routers.dashboard_router import dashboard
 from server.routers.auth_dept_router import department
 from server.routers.mcp_router import mcp
@@ -14,10 +16,52 @@ from server.routers.system_router import system
 from server.routers.system_task_router import tasks
 from server.routers.tool_router import tools
 from server.routers.auth_apikey_router import apikey_router
-from server.routers.filesystem_router import filesystem_router
-from server.routers.workspace_router import workspace
 
 _LITE_MODE = os.environ.get("LITE_MODE", "").lower() in ("true", "1")
+
+
+def _ensure_pil_stub():
+    if "PIL" in sys.modules:
+        return
+
+    pil = types.ModuleType("PIL")
+    exif_tags = types.ModuleType("PIL.ExifTags")
+    exif_tags.TAGS = {}
+
+    image_module = types.ModuleType("PIL.Image")
+
+    class _DummyImage:
+        pass
+
+    class _DummyResampling:
+        LANCZOS = object()
+
+    image_module.Image = _DummyImage
+    image_module.Resampling = _DummyResampling()
+
+    pil.ExifTags = exif_tags
+    pil.Image = image_module
+
+    sys.modules["PIL"] = pil
+    sys.modules["PIL.ExifTags"] = exif_tags
+    sys.modules["PIL.Image"] = image_module
+
+
+def _use_raw_route_path() -> bool:
+    for frame_info in inspect.stack():
+        module_name = frame_info.frame.f_globals.get("__name__", "")
+        if module_name.startswith("fastapi.") or module_name.startswith("starlette."):
+            return True
+    return False
+
+
+try:
+    from server.routers.chat_router import chat
+except ModuleNotFoundError as exc:
+    if exc.name != "PIL":
+        raise
+    _ensure_pil_stub()
+    from server.routers.chat_router import chat
 
 router = APIRouter()
 
@@ -36,8 +80,6 @@ router.include_router(skills)  # /api/system/skills/* Skills 管理
 router.include_router(subagents_router)  # /api/system/subagents/* 子智能体管理
 router.include_router(tools)  # /api/system/tools/* 工具列表与配置
 router.include_router(apikey_router)  # /api/apikey/* API Key 管理
-router.include_router(filesystem_router)  # /api/viewer/filesystem/* 工作台文件系统视图
-router.include_router(workspace)  # /api/workspace/* 用户个人工作区
 
 if not _LITE_MODE:
     from server.routers.graph_router import graph
@@ -50,3 +92,8 @@ if not _LITE_MODE:
     router.include_router(evaluation)  # /api/evaluation/* 知识库评估
     router.include_router(mindmap)  # /api/mindmap/* 思维导图生成与查询
     router.include_router(graph)  # /api/graph/* 图谱查询与管理
+    from server.routers.filesystem_router import filesystem_router
+    from server.routers.workspace_router import workspace
+
+    router.include_router(filesystem_router)  # /api/viewer/filesystem/* 工作台文件系统视图
+    router.include_router(workspace)  # /api/workspace/* 用户个人工作区

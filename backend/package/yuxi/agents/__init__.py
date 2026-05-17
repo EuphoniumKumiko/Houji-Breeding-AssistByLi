@@ -1,18 +1,4 @@
-# Base classes - 核心基类
-from yuxi.agents.base import BaseAgent
-
-# 从 buildin 模块导入 agent_manager
-from yuxi.agents.context import BaseContext
-
-# Model utilities - 模型加载
-from yuxi.agents.models import load_chat_model
-from yuxi.agents.state import BaseState
-
-# Tools - 核心工具函数
-from yuxi.agents.toolkits.utils import get_tool_info
-
-# MCP - Agent 层统一入口（自动过滤 disabled_tools）
-from yuxi.services.mcp_service import get_enabled_mcp_tools
+from importlib import import_module
 
 __all__ = [
     # Base classes
@@ -26,3 +12,23 @@ __all__ = [
     # Core MCP
     "get_enabled_mcp_tools",
 ]
+
+
+def __getattr__(name: str):
+    if name == "BaseAgent":
+        return import_module("yuxi.agents.base").BaseAgent
+    if name == "BaseContext":
+        return import_module("yuxi.agents.context").BaseContext
+    if name == "BaseState":
+        return import_module("yuxi.agents.state").BaseState
+    if name == "load_chat_model":
+        return import_module("yuxi.agents.models").load_chat_model
+    if name == "get_tool_info":
+        return import_module("yuxi.agents.toolkits.utils").get_tool_info
+    if name == "get_enabled_mcp_tools":
+        return import_module("yuxi.services.mcp_service").get_enabled_mcp_tools
+    raise AttributeError(f"module 'yuxi.agents' has no attribute {name!r}")
+
+
+def __dir__():
+    return sorted(set(globals()) | set(__all__))

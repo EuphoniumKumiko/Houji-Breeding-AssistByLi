@@ -84,29 +84,44 @@
     </div>
 
     <div class="container-outter">
-      <GraphCanvas
-        ref="graphRef"
-        :graph-data="graph.graphData"
-        :graph-info="formattedGraphInfo"
-        :highlight-keywords="[state.searchInput]"
-        @node-click="graph.handleNodeClick"
-        @edge-click="graph.handleEdgeClick"
-        @canvas-click="graph.handleCanvasClick"
-        class="graph-canvas"
-      >
-        <template #content>
-          <a-empty v-show="graph.graphData.nodes.length === 0" style="padding: 4rem 0" />
-        </template>
-      </GraphCanvas>
-      <!-- 详情浮动卡片 -->
-      <GraphDetailPanel
-        :visible="graph.showDetailDrawer"
-        :item="graph.selectedItem"
-        :type="graph.selectedItemType"
-        :nodes="graph.graphData.nodes"
-        @close="graph.handleCanvasClick"
-        style="width: 380px"
-      />
+      <div class="graph-workspace" :class="{ 'detail-open': isDetailDrawerOpen }">
+        <div class="graph-canvas-wrap">
+          <GraphCanvas
+            ref="graphRef"
+            :graph-data="graph.graphData"
+            :graph-info="formattedGraphInfo"
+            :highlight-keywords="[state.searchInput]"
+            @node-click="handleGraphNodeClick"
+            @edge-click="handleGraphEdgeClick"
+            @canvas-click="closeGraphDetailDrawer"
+            class="graph-canvas"
+          >
+            <template #content>
+              <a-empty v-show="graph.graphData.nodes.length === 0" style="padding: 4rem 0" />
+            </template>
+          </GraphCanvas>
+        </div>
+
+        <Transition
+          name="kg-detail-layout"
+          @after-enter="handleDetailDrawerAfterEnter"
+          @after-leave="handleDetailDrawerAfterLeave"
+        >
+          <aside v-if="isDetailDrawerOpen" class="graph-detail-pane">
+            <GraphDetailPanel
+              class="graph-detail-drawer"
+              :visible="true"
+              :item="graph.selectedItem"
+              :type="graph.selectedItemType"
+              :nodes="graph.graphData.nodes"
+              :edges="graph.graphData.edges"
+              @close="closeGraphDetailDrawer"
+              @focus-node="handleDetailFocusNode"
+              @focus-edge="handleDetailFocusEdge"
+            />
+          </aside>
+        </Transition>
+      </div>
     </div>
 
     <a-modal
@@ -197,7 +212,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { useConfigStore } from '@/stores/config'
@@ -215,6 +230,15 @@ import GraphCanvas from '@/components/GraphCanvas.vue'
 import GraphDetailPanel from '@/components/GraphDetailPanel.vue'
 import EmbeddingModelSelector from '@/components/EmbeddingModelSelector.vue'
 import { useGraph } from '@/composables/useGraph'
+
+const handleExportDetail = async (detail) => {
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(detail, null, 2))
+    message.success('节点详情已复制到剪贴板')
+  } catch {
+    message.error('导出失败，请手动复制')
+  }
+}
 
 const configStore = useConfigStore()
 const cur_embed_model = computed(() => configStore.config?.embed_model)
@@ -236,6 +260,191 @@ const fileList = ref([])
 const sampleNodeCount = ref(100)
 
 const graph = reactive(useGraph(graphRef))
+
+// 控制侧边详情抽屉的打开状态：当 graph.showDetailDrawer 为 true 且有选中项时才显示
+const isDetailDrawerOpen = computed(() => {
+  return Boolean(graph.showDetailDrawer && graph.selectedItem)
+})
+
+const graphCenterTimer = ref(null)
+const pendingCenterTarget = ref(null)
+const pendingCloseReset = ref(false)
+
+const closeGraphDetailDrawer = () => {
+  pendingCloseReset.value = true
+  pendingCenterTarget.value = null
+
+  // 只先关闭详情面板，不要立刻 resize / fitCenter
+  graph.handleCanvasClick()
+}
+
+function getGraphItemId(item) {
+  return String(item?.id || item?.data?.id || item?.data?.original?.id || item?.original?.id || '')
+}
+
+function getGraphEdgePayload(edgeData) {
+  return {
+    id: edgeData?.id,
+    source: edgeData?.source_id || edgeData?.source,
+    target: edgeData?.target_id || edgeData?.target,
+    type: edgeData?.type || edgeData?.label || edgeData?.name || edgeData?.data?.label
+  }
+}
+
+function setPendingCenter(target) {
+  pendingCenterTarget.value = target
+}
+
+function scheduleCenterToPending(delay = 0) {
+  clearTimeout(graphCenterTimer.value)
+
+  graphCenterTimer.value = setTimeout(async () => {
+    const target = pendingCenterTarget.value
+    if (!target) return
+
+    // 关键：先让 GraphCanvas 重新读取抽屉展开后的真实画布尺寸
+    await graphRef.value?.resizeToContainer?.()
+
+    // 再居中，而不是用抽屉展开前的旧画布尺寸
+    if (target.type === 'node') {
+      await graphRef.value?.centerNodeInCanvas?.(target.id)
+    } else if (target.type === 'edge') {
+      await graphRef.value?.centerEdgeInCanvas?.(target.payload)
+    }
+  }, delay)
+}
+
+function requestCenterEdge(edgePayload, delay = 320) {
+  clearTimeout(graphCenterTimer.value)
+
+  graphCenterTimer.value = setTimeout(() => {
+    if (!edgePayload) return
+    graphRef.value?.centerEdgeInCanvas?.(edgePayload)
+  }, delay)
+}
+
+function handleGraphNodeClick(nodeData) {
+  const drawerAlreadyOpen = isDetailDrawerOpen.value
+  graph.handleNodeClick(nodeData)
+
+  const nodeId = getGraphItemId(nodeData)
+  setPendingCenter({
+    type: 'node',
+    id: nodeId
+  })
+
+  // 如果抽屉已经展开，直接按当前区域居中
+  // 如果抽屉刚打开，则等 after-enter 统一处理
+  if (drawerAlreadyOpen) {
+    scheduleCenterToPending(80)
+  }
+}
+
+function handleGraphEdgeClick(edgeData) {
+  const drawerAlreadyOpen = isDetailDrawerOpen.value
+  graph.handleEdgeClick(edgeData)
+
+  const edgePayload = getGraphEdgePayload(edgeData)
+  setPendingCenter({
+    type: 'edge',
+    payload: edgePayload
+  })
+
+  if (drawerAlreadyOpen) {
+    scheduleCenterToPending(80)
+  }
+}
+
+function resolveGraphNodeId(payload) {
+  const candidateIds = [
+    payload?.id,
+    payload?.originalId,
+    payload?.raw?.id,
+    payload?.raw?.original?.id,
+    payload?.name,
+    payload?.title,
+    payload?.label
+  ]
+    .filter(Boolean)
+    .map(String)
+
+  const matched = graph.graphData.nodes.find((node) => {
+    const values = [
+      node?.id,
+      node?.name,
+      node?.title,
+      node?.label,
+      node?.original?.id,
+      node?.original?.name,
+      node?.original?.title
+    ]
+      .filter(Boolean)
+      .map(String)
+
+    return candidateIds.some((id) => values.includes(id))
+  })
+
+  return matched ? String(matched.id) : String(payload?.id || '')
+}
+
+function handleDetailFocusNode(payload) {
+  const nodeId = resolveGraphNodeId(payload)
+  if (!nodeId) return
+
+  const matchedNode = graph.graphData.nodes.find((node) => String(node.id) === nodeId)
+
+  if (matchedNode) {
+    graph.handleNodeClick(matchedNode)
+  }
+
+  graphRef.value?.focusNodeFromDetail?.(nodeId)
+}
+
+function handleDetailFocusEdge(edgePayload) {
+  graphRef.value?.focusEdgeFromDetail?.(edgePayload)
+
+  setPendingCenter({
+    type: 'edge',
+    payload: edgePayload
+  })
+
+  scheduleCenterToPending(80)
+}
+
+function handleDetailDrawerAfterEnter() {
+  // 抽屉动画完成后，再按缩小后的画布区域居中
+  scheduleCenterToPending(60)
+}
+
+async function handleDetailDrawerAfterLeave() {
+  clearTimeout(graphCenterTimer.value)
+  pendingCenterTarget.value = null
+
+  if (!pendingCloseReset.value) return
+
+  pendingCloseReset.value = false
+
+  await nextTick()
+
+  // 关键：抽屉完全收起之后，再恢复图谱状态和重新居中
+  setTimeout(async () => {
+    await graphRef.value?.clearGraphSelection?.()
+    await graphRef.value?.resizeToContainer?.()
+    await graphRef.value?.fitGraphToCurrentCanvas?.()
+  }, 60)
+}
+
+watch(isDetailDrawerOpen, async (open, oldOpen) => {
+  await nextTick()
+
+  // 打开抽屉时，给一个兜底居中
+  if (open && !oldOpen) {
+    scheduleCenterToPending(380)
+  }
+
+  // 关闭抽屉时，不在这里做任何 fitCenter / resize
+  // 统一交给 handleDetailDrawerAfterLeave
+})
 
 const state = reactive({
   loadingGraphInfo: false,
@@ -712,15 +921,102 @@ const goToDatabasePage = () => {
   background: var(--gray-10);
   padding: 16px var(--page-padding);
 
-  .graph-canvas {
+  .graph-workspace {
+    --detail-drawer-width: clamp(320px, 28%, 460px);
+    --detail-drawer-gap: clamp(10px, 1.2vw, 16px);
+
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: stretch;
+    overflow: hidden;
+  }
+
+  .graph-canvas-wrap {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 100%;
+    overflow: hidden;
     border: 1px solid var(--gray-100);
-    border-radius: 8px;
+    border-radius: 12px;
+    background: #ffffff;
+    transition:
+      flex-basis 0.28s ease,
+      width 0.28s ease;
+  }
+
+  .graph-canvas {
+    width: 100%;
     height: 100%;
   }
 
-  .tags {
-    display: flex;
-    gap: 8px;
+  .graph-detail-pane {
+    flex: 0 0 var(--detail-drawer-width);
+    width: var(--detail-drawer-width);
+    height: 100%;
+    margin-left: var(--detail-drawer-gap);
+    overflow: hidden;
+    z-index: 1200;
+    border-radius: 18px;
+  }
+
+  .graph-detail-drawer {
+    width: 100%;
+    height: 100%;
+  }
+
+  .kg-detail-layout-enter-active,
+  .kg-detail-layout-leave-active {
+    transition:
+      width 0.28s ease,
+      flex-basis 0.28s ease,
+      margin-left 0.28s ease,
+      transform 0.28s ease,
+      opacity 0.22s ease;
+  }
+
+  .kg-detail-layout-enter-from,
+  .kg-detail-layout-leave-to {
+    flex-basis: 0;
+    width: 0;
+    margin-left: 0;
+    transform: translateX(2rem);
+    opacity: 0;
+  }
+
+  .kg-detail-layout-enter-to,
+  .kg-detail-layout-leave-from {
+    flex-basis: var(--detail-drawer-width);
+    width: var(--detail-drawer-width);
+    margin-left: var(--detail-drawer-gap);
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@media (max-width: 1280px) {
+  .container-outter {
+    .graph-workspace {
+      --detail-drawer-width: clamp(20rem, 31vw, 27rem);
+    }
+  }
+}
+
+@media (max-width: 960px) {
+  .container-outter {
+    .graph-workspace {
+      position: relative;
+      --detail-drawer-width: min(86vw, 28rem);
+    }
+
+    .graph-detail-pane {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      margin-left: 0;
+      box-shadow: -18px 0 40px rgba(15, 23, 42, 0.12);
+    }
   }
 }
 

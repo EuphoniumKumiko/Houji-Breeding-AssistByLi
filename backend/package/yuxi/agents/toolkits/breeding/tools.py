@@ -25,6 +25,7 @@ REQUIRED_FILES = {
     "metabolome": "metabolome_raw_3372.tsv",
     "pipeline_script": "run_smoke_de_pipeline.sh",
 }
+VERIFIED_LITERATURE_EVIDENCE_FILE = "verified_literature_evidence.tsv"
 
 DOI_PATTERN = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Z0-9]+\b", re.IGNORECASE)
 POPULATION_VALIDATED_PATTERN = re.compile(
@@ -105,6 +106,40 @@ def _find_significant_de_genes(data_dir: Path, out_dir: Path) -> Path | None:
         if resolved.exists() and resolved.is_file():
             return resolved
     return None
+
+
+def _load_verified_literature_evidence(data_dir: Path, trait: str) -> list[dict[str, str]]:
+    evidence_path = data_dir / VERIFIED_LITERATURE_EVIDENCE_FILE
+    if not evidence_path.exists():
+        return []
+
+    entries: list[dict[str, str]] = []
+    with evidence_path.open(encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        for row in reader:
+            gene_id = (row.get("gene_id") or "").strip()
+            trait_value = (row.get("trait") or "").strip()
+            doi = (row.get("doi") or "").strip()
+            quoted_sentence = (row.get("quoted_sentence") or "").strip()
+            if gene_id != TARGET_GENE:
+                continue
+            if "黄酮" not in trait_value and "黄酮" not in trait:
+                continue
+            if not doi or not quoted_sentence:
+                continue
+            entries.append(
+                {
+                    "gene_id": gene_id,
+                    "trait": trait_value,
+                    "doi": doi,
+                    "title": (row.get("title") or "").strip(),
+                    "quoted_sentence": quoted_sentence,
+                    "source": (row.get("source") or "").strip(),
+                    "evidence_level": (row.get("evidence_level") or "").strip(),
+                    "note": (row.get("note") or "").strip(),
+                }
+            )
+    return entries
 
 
 def _run_transcriptome_pipeline(data_dir: Path, out_dir: Path, run_log: Path) -> dict[str, Any]:
@@ -243,6 +278,7 @@ def _build_advice_markdown(
     gff_hit: dict[str, Any],
     annotation_hit: dict[str, Any],
     metabolome_summary: dict[str, Any],
+    literature_evidence: list[dict[str, str]],
 ) -> str:
     de_sentence = (
         f"转录组结果文件 `{significant_de_path}` 中检出 {TARGET_GENE}，"
@@ -278,6 +314,29 @@ def _build_advice_markdown(
         )
     )
 
+    literature_lines = ["## 文献证据"]
+    if literature_evidence:
+        evidence = literature_evidence[0]
+        literature_lines.extend(
+            [
+                f"真实 DOI：{evidence['doi']}",
+                f"引用原文：{evidence['quoted_sentence']}",
+            ]
+        )
+        if evidence.get("title"):
+            literature_lines.append(f"文献标题：{evidence['title']}")
+        if evidence.get("source"):
+            literature_lines.append(f"证据来源：{evidence['source']}")
+        if evidence.get("evidence_level"):
+            literature_lines.append(f"证据等级：{evidence['evidence_level']}")
+    else:
+        literature_lines.extend(
+            [
+                "真实 DOI：待文献检索补充",
+                "引用原文：待文献检索补充",
+            ]
+        )
+
     return "\n".join([
         "# Smoke 黄酮育种建议",
         "",
@@ -296,9 +355,7 @@ def _build_advice_markdown(
         metabolome_sentence,
         "代谢组证据只能作为黄酮相关背景证据，不能写成湿实验验证或因果验证。",
         "",
-        "## 文献证据",
-        "真实 DOI：待文献检索补充",
-        "引用原文：待文献检索补充",
+        *literature_lines,
         "",
         "## 育种建议",
         f"- 将 {TARGET_GENE} 作为黄酮相关候选基因线索之一，"
@@ -423,6 +480,8 @@ def smoke_flavonoid_breeding_advice(
     pipeline_result = {"attempted": False, "returncode": None, "stdout_tail": "", "stderr_tail": "", "error": ""}
 
     significant_de_path = _find_significant_de_genes(data_path, out_path)
+    literature_evidence = _load_verified_literature_evidence(data_path, trait)
+    known_dois = {entry["doi"] for entry in literature_evidence}
     if run_transcriptome:
         pipeline_result = _run_transcriptome_pipeline(data_path, out_path, run_log)
         if pipeline_result.get("returncode") != 0:
@@ -446,8 +505,9 @@ def smoke_flavonoid_breeding_advice(
             gff_hit=_lookup_gene_in_text(paths["genome_gff"], TARGET_GENE),
             annotation_hit=_lookup_gene_in_text(paths["annotation"], TARGET_GENE),
             metabolome_summary=_inspect_metabolome(paths["metabolome"]),
+            literature_evidence=literature_evidence,
         )
-        guard_result = _guard_advice(advice)
+        guard_result = _guard_advice(advice, known_dois=known_dois)
         status = "error"
     else:
         gff_hit = _lookup_gene_in_text(paths["genome_gff"], TARGET_GENE)
@@ -461,8 +521,9 @@ def smoke_flavonoid_breeding_advice(
             gff_hit=gff_hit,
             annotation_hit=annotation_hit,
             metabolome_summary=metabolome_summary,
+            literature_evidence=literature_evidence,
         )
-        guard_result = _guard_advice(advice)
+        guard_result = _guard_advice(advice, known_dois=known_dois)
 
     if not guard_result.get("passed"):
         status = "failed_guard" if status == "completed" else status

@@ -27,6 +27,12 @@ def load_chat_model_v2(spec: str, **kwargs) -> BaseChatModel:
 
     api_key = info.api_key
     base_url = get_docker_safe_url(info.base_url)
+    model_kwargs = dict(kwargs)
+
+    if info.model_id == "deepseek-v4-pro":
+        extra_body = dict(model_kwargs.get("extra_body") or {})
+        extra_body.setdefault("thinking", {"type": "disabled"})
+        model_kwargs["extra_body"] = extra_body
 
     logger.debug(f"[v2] Loading model {spec} with provider_type={info.provider_type}")
 
@@ -38,7 +44,7 @@ def load_chat_model_v2(spec: str, **kwargs) -> BaseChatModel:
             model=info.model_id,
             api_key=SecretStr(api_key),
             base_url=base_url,
-            **kwargs,
+            **model_kwargs,
         )
     elif info.provider_type == "gemini":
         from langchain_google_genai import ChatGoogleGenerativeAI
@@ -46,7 +52,7 @@ def load_chat_model_v2(spec: str, **kwargs) -> BaseChatModel:
         return ChatGoogleGenerativeAI(
             model=info.model_id,
             google_api_key=SecretStr(api_key),
-            **kwargs,
+            **model_kwargs,
         )
     else:
         # 默认使用 OpenAI 兼容层（openai, openrouter, ollama, lmstudio 等）
@@ -57,7 +63,7 @@ def load_chat_model_v2(spec: str, **kwargs) -> BaseChatModel:
             api_key=SecretStr(api_key),
             base_url=base_url,
             stream_usage=True,
-            **kwargs,
+            **model_kwargs,
         )
 
 

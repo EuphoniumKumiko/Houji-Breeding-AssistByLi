@@ -1,5 +1,17 @@
 from __future__ import annotations
 
+"""Breeding business tools built on top of YuXi's tool registry.
+
+These tools are not a generic open-source bioinformatics agent. They are
+project-specific business wrappers that YuXi Agent Runs can call through the
+standard Tool mechanism.
+
+In this smoke workflow, the code validates demo inputs, optionally calls the
+senior-provided ``run_smoke_de_pipeline.sh`` script, reads DOI and quoted
+sentences from ``verified_literature_evidence.tsv``, and assembles a guarded
+breeding advice markdown.
+"""
+
 import csv
 import json
 import re
@@ -44,6 +56,9 @@ PRODUCTION_CLAIM_PATTERN = re.compile(
 )
 FLAVONOID_KEYWORDS = ("黄酮", "flavonoid", "flavone", "flavonol", "anthocyan", "isoflav")
 PIPELINE_DEPENDENCIES = ("hisat2-build", "hisat2", "samtools", "featureCounts", "Rscript")
+
+# 这些输入模型主要服务于 YuXi Tool 调用时的参数约束和扩展管理展示。
+# 对老师解释时，可以把它们理解为“每个业务 Tool 对外公开的输入合同”。
 
 
 class SmokeFlavonoidBreedingAdviceInput(BaseModel):
@@ -284,6 +299,8 @@ def _load_verified_literature_evidence(
     literature_filename: str = VERIFIED_LITERATURE_EVIDENCE_FILE,
     gene_id: str = TARGET_GENE,
 ) -> tuple[list[dict[str, str]], Path]:
+    # DOI 和引用原句不来自大模型生成，而是从人工整理的 TSV 中读取。
+    # 这里先做最小过滤，保证后续 advice 只能引用“已落盘、可追溯”的文献字段。
     evidence_path = data_dir / literature_filename
     if not evidence_path.exists():
         return [], evidence_path
@@ -333,6 +350,8 @@ def _check_missing_pipeline_tools() -> list[str]:
 
 
 def _run_transcriptome_pipeline(data_dir: Path, out_dir: Path, threads: int, run_log: Path) -> dict[str, Any]:
+    # 真正的转录组执行不是 YuXi 原生能力，而是调用学长给定的固定脚本。
+    # 该脚本底层依赖 hisat2、samtools、featureCounts、Rscript 等开源生信软件。
     script = data_dir / REQUIRED_FILES["pipeline_script"]
     de_out_dir = out_dir / "de_pipeline_out"
     command = [
@@ -422,6 +441,8 @@ def _build_advice_markdown(
     metabolome_summary: dict[str, Any],
     literature_evidence: list[dict[str, str]],
 ) -> str:
+    # 这里负责把“文件解析得到的证据”组织成可展示的育种建议。
+    # 它生成的是建议文本，不是实验结论；所有表述都必须保留 smoke demo 边界。
     if de_support.get("supports_target_gene"):
         de_sentence = (
             f"转录组结果文件 `{significant_de_path}` 中检出 {TARGET_GENE}，"
@@ -495,6 +516,8 @@ def _build_advice_markdown(
 
 
 def _guard_advice(advice: str, *, known_dois: set[str] | None = None) -> dict[str, Any]:
+    # 这是最终输出守卫：不让 Agent 文本越过当前 demo 能力边界。
+    # 重点检查目标基因、群体、黄酮、DOI 真实性，以及是否误称验证已经完成。
     known_dois = known_dois or set()
     production_wording = bool(PRODUCTION_CLAIM_PATTERN.search(advice))
     explicit_smoke_boundary = (
@@ -554,6 +577,7 @@ def _run_reference_prepare_impl(
     annotation_txt: str,
     out_dir: str,
 ) -> dict[str, Any]:
+    # 参考信息阶段只做“文件存在性 + 目标基因痕迹检查”，不做复杂生物学推断。
     data_path, error = _ensure_data_dir(data_dir)
     if error:
         return error
@@ -607,6 +631,10 @@ def _run_transcriptome_deg_impl(
     threads: int,
     run_pipeline: bool,
 ) -> dict[str, Any]:
+    # 这一段是转录组 Tool 的核心编排：
+    # 1. 检查输入文件和外部软件
+    # 2. 需要时调用固定脚本
+    # 3. 回收 significant_de_genes.tsv 并检查目标基因是否出现
     data_path, error = _ensure_data_dir(data_dir)
     if error:
         return error
@@ -693,6 +721,8 @@ def _run_transcriptome_deg_impl(
 
 
 def _run_metabolome_prepare_impl(*, data_dir: str, metabolome_tsv: str, trait: str, out_dir: str) -> dict[str, Any]:
+    # 代谢组阶段当前只做轻量读取，定位黄酮相关字段或名称，作为背景证据。
+    # 它不产生因果证明，也不直接证明 Si9g037800 的功能。
     data_path, error = _ensure_data_dir(data_dir)
     if error:
         return error
@@ -740,6 +770,8 @@ def _run_literature_evidence_impl(
     gene_id: str,
     out_dir: str,
 ) -> dict[str, Any]:
+    # 文献阶段的价值在于给前端和最终回答提供“可追溯 DOI + 原句”。
+    # 当前 smoke 数据里的证据是背景证据，不应被解释成 Si9g037800 已直接功能验证。
     data_path, error = _ensure_data_dir(data_dir)
     if error:
         return error
@@ -805,6 +837,11 @@ def _run_breeding_advice_generate_impl(
     significant_de_genes: str,
     out_dir: str,
 ) -> dict[str, Any]:
+    # 建议生成阶段是总装配：
+    # - 读取前面各步骤的 manifest 或直接回退执行轻量检查
+    # - 汇总文件证据
+    # - 生成建议 markdown
+    # - 再经过 guard，防止输出越界
     data_path, error = _ensure_data_dir(data_dir)
     if error:
         return {
@@ -928,6 +965,7 @@ def _run_breeding_advice_generate_impl(
 
 
 def _run_validation_plan_impl(*, trait: str, gene_id: str, marker_types: str, out_dir: str) -> dict[str, Any]:
+    # 这里输出的是“下一步验证计划”，不是已完成结果。
     out_path, out_error = _ensure_out_dir(out_dir)
     if out_error:
         return {"status": "error", "error": out_error, "artifacts": []}
@@ -1132,6 +1170,8 @@ def smoke_flavonoid_breeding_advice(
     run_transcriptome: bool = True,
 ) -> dict[str, Any]:
     """Keep the one-click smoke entrypoint while reusing modular flavonoid breeding tools."""
+    # 这个 Tool 是当前工作台最重要的一键入口。
+    # 对老师解释时，可以把它理解为“先跑转录组/读取结果，再汇总成最终建议”的包装层。
     transcriptome_payload = _run_transcriptome_deg_impl(
         data_dir=data_dir,
         fq_dir="fq",
@@ -1153,6 +1193,7 @@ def smoke_flavonoid_breeding_advice(
             "artifacts": [],
         }
 
+    # 最终 advice 仍然依赖后续 guard；即使前面文件都在，也不能绕过边界约束。
     advice_payload = _run_breeding_advice_generate_impl(
         data_dir=data_dir,
         trait=trait,

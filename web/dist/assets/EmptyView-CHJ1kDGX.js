@@ -1,0 +1,1 @@
+import{_ as n,e as t,g as o,q as s}from"./index-8aMVKU2O.js";const a={},r={class:"not-found"};function c(d,e){return s(),t("div",r,[...e[0]||(e[0]=[o("h1",null,"404 - 页面还没做",-1),o("p",null,"Sorry, Yemian has not been zuoed.",-1)])])}const f=n(a,[["render",c],["__scopeId","data-v-35df32f2"]]);export{f as default};
